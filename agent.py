@@ -18,15 +18,18 @@ with open(config_file, 'r') as file:
     data = json.load(file)
     api_key = data[0]["openai"]["api_key"]
 
-os.environ["OPENAI_MODEL"] = "gpt-3.5-turbo"
-os.environ["OPENAI_API_KEY"] = api_key
-
-
 class OpenAIAgent:
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.openai = OpenAI(api_key=api_key)
+    def __init__(self, api_key: str = None):
+        if api_key is None:
+            try:
+                self.api_key = os.environ["OPENAI_API_KEY"]
+            except KeyError:
+                raise ValueError("API key must be provided either as an argument or in the environment variables.")
+        else:
+            self.api_key = api_key
+
+        self.openai = OpenAI(api_key=self.api_key)
         self.tools = []
         self.func_callbacks = {}
 
@@ -187,79 +190,12 @@ class OpenAIAgent:
 
         return openai_params
 
+    import json
+
     def ask(self, messages: list):
-        response = self.openai.chat.completions.create(
+        # First request to get the initial response
+        return self.openai.chat.completions.create(
             model='gpt-4o',
             messages=messages,
             tools=self.tools
         )
-        if response.choices[0].message.tool_calls:
-            tool_call = response.choices[0].message.tool_calls[0]
-            function_name = tool_call.function.name
-            callback = self.func_callbacks.get(function_name)
-            arguments = json.loads(tool_call.function.arguments)
-            callback_result = callback(**arguments)
-            tool_call_response = {
-                "role": "function",
-                "name": function_name,
-                "content": json.dumps({
-                    **arguments,
-                    "result": callback_result
-                })
-            }
-            messages.append(tool_call_response)
-            # Call the OpenAI API's chat completions endpoint to send the tool call result back to the model
-            response = self.openai.chat.completions.create(
-                model='gpt-4o',
-                messages=messages,
-            )
-        return response
-
-# This is the function that we want the model to be able to call
-def get_delivery_date(order_id: str) -> str:
-    """
-    Get the delivery date for a customer's order. Call this whenever you need to know the delivery date, for example when a customer asks 'Where is my package'
-
-    :param str order_id: The customer's order ID.
-    :return str: The delivery date for the order.
-    """
-    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-
-agent = OpenAIAgent(api_key=os.environ.get("OPENAI_API_KEY"))
-
-
-tool = {
-        "type": "function",
-        "function": {
-            "name": "get_delivery_date",
-            "description": "Get the delivery date for a customer's order. Call this whenever you need to know the delivery date, for example when a customer asks 'Where is my package'",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "order_id": {
-                        "type": "string",
-                        "description": "The customer's order ID."
-                    }
-                },
-                "required": ["order_id"],
-                "additionalProperties": False
-            }
-        }
-    }
-# Register the function as a tool
-
-agent.new_tool(get_delivery_date)
-
-
-messages = [
-    {"role": "system", "content": "You are a helpful customer support assistant. Use the supplied tools to assist the user."},
-    {"role": "user", "content": "Hi, can you tell me the delivery date for my order?"},
-    {"role": "assistant", "content": "Hi there! I can help with that. Can you please provide your order ID?"},
-    {"role": "user", "content": "i think it is order_12345"}
-]
-
-response = agent.ask(messages)
-
-# Print the response from the API
-print(response)

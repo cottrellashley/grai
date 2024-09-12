@@ -2,3 +2,5 @@ relativisticpy==1.2.9
 sympy==1.12
 openai
 streamlit
+docstring_parser
+loguru
